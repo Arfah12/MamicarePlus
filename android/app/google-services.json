@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "132851206607",
+    "project_id": "mamicarep",
+    "storage_bucket": "mamicarep.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:132851206607:android:dbcf49dc20e013273feaba",
+        "android_client_info": {
+          "package_name": "com.example.mamicare_plus2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAHR3Yeg1tZlWkaM-wxDB87shqdQn_EByk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

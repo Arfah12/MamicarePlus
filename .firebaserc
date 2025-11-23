@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "mamicarep": "mamicarep",
+    "default": "mamicarep"
+  },
+  "targets": {},
+  "etags": {}
+}
