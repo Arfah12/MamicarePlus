@@ -442,7 +442,7 @@ class _CreateProfilePageState extends State<CreateProfilePage> {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
             ]
             // Step 3: Caregiver
             else if (_currentStep == 3) ...[

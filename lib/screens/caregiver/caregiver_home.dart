@@ -207,7 +207,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
 
                 // 🎉 Confetti trigger bila 100%
                 if (progress == 1.0) {
-                  milestone["controller"].play();
+                  (milestone["controller"] as ConfettiController).play();
                 }
 
                 return Stack(
@@ -268,6 +268,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
                                     AnimatedScale(
                                       scale: animatedProgress == 1.0 ? 1.2 : 1.0,
                                       duration: const Duration(milliseconds: 300),
+                                      curve: Curves.easeOutBack,
                                       child: Icon(
                                         milestone["icon"] as IconData,
                                         size: 26,
@@ -380,7 +381,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
     final milestone = milestones[index];
     final achievedData = achievedMap[milestone['id']] ?? {'achieved': false, 'date': null};
     final achieved = achievedData['achieved'] as bool;
-    final achievedDate = achievedData['date'] as DateTime?;
+    final achievedDate = achievedData['achieved_at'] as DateTime?;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -508,9 +509,12 @@ Widget _buildUpcomingVaccines(
       }).toList();
 
       if (scheduledVaccines.isEmpty) {
-        return const Text(
-          "Tiada vaksin yang dijadualkan lagi.",
-          style: TextStyle(color: Colors.grey),
+        return const Padding(
+            padding: EdgeInsets.only(left: 16.0), // Padding untuk selaras dengan item list
+            child: Text(
+              "Tiada vaksin yang dijadualkan lagi.",
+              style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
+            ),
         );
       }
 
@@ -550,7 +554,7 @@ Widget _buildUpcomingVaccines(
                   Future<void> runAnimationAndUpdate() async {
                     // fade & slide out
                     setStateItem(() {
-                      offsetX = 40;
+                      offsetX = 40.0;
                       opacity = 0.0;
                       done = true;
                     });
@@ -679,9 +683,9 @@ Future<void> _showGrowthFormDialog(
   String vaccineId,
   String vaccineName,
 ) async {
-  final _weightController = TextEditingController();
-  final _heightController = TextEditingController();
-  final _noteController = TextEditingController();
+  final weightController = TextEditingController();
+  final heightController = TextEditingController();
+  final noteController = TextEditingController();
 
   await showModalBottomSheet(
     context: context,
@@ -718,11 +722,11 @@ Future<void> _showGrowthFormDialog(
           const SizedBox(height: 16),
 
           // Berat
-          _buildStyledTextField(_weightController, "Berat (kg)"),
+          _buildStyledTextField(weightController, "Berat (kg)"),
           // Tinggi
-          _buildStyledTextField(_heightController, "Tinggi (cm)"),
+          _buildStyledTextField(heightController, "Tinggi (cm)"),
           // Nota
-          _buildStyledTextField(_noteController, "Nota (jika ada)"),
+          _buildStyledTextField(noteController, "Nota (jika ada)"),
 
           const SizedBox(height: 20),
           // Button simpan
@@ -748,9 +752,9 @@ Future<void> _showGrowthFormDialog(
               child: InkWell(
                 borderRadius: BorderRadius.circular(30),
                 onTap: () async {
-                  double? weight = double.tryParse(_weightController.text);
-                  double? height = double.tryParse(_heightController.text);
-                  String note = _noteController.text;
+                  double? weight = double.tryParse(weightController.text);
+                  double? height = double.tryParse(heightController.text);
+                  String note = noteController.text;
 
                   await babyDocRef.collection('growth_records').doc().set({
                     'weight': weight,
@@ -799,6 +803,7 @@ Widget _buildStyledTextField(TextEditingController controller, String label) {
     child: TextField(
       controller: controller,
       style: const TextStyle(color: Color(0xFF4A148C)),
+      keyboardType: label.contains('(kg)') || label.contains('(cm)') ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(color: const Color(0xFF4A148C).withOpacity(0.8)),
@@ -820,13 +825,17 @@ Widget _buildStyledTextField(TextEditingController controller, String label) {
 
     return Container(
       // === KUNCI: BACKGROUND IMAGE DI SINI ===
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
          // Warna sandaran
         image: DecorationImage(
           image: AssetImage('assets/images/wallpaper1.jpg'), // Laluan imej yang diminta
           fit: BoxFit.cover, // Untuk mengisi keseluruhan ruang
-           // Kurangkan kelegapan agar teks mudah dibaca
+          colorFilter: ColorFilter.mode(
+            Colors.white.withOpacity(0.5), // Tambah sedikit keputihan untuk kontras teks
+            BlendMode.lighten,
+          ),
         ),
+        color: backgroundColor, // Background fallback
       ),
       child: SafeArea(
         child: StreamBuilder<QuerySnapshot>(
@@ -846,16 +855,29 @@ Widget _buildStyledTextField(TextEditingController controller, String label) {
             final localPhotoPath = baby['local_photo_path'] as String?;
             DateTime dob = (baby['dob'] as Timestamp).toDate();
             final ageText = _calculateAge(dob);
-            final currentAgeMonths = (DateTime.now().year - dob.year) * 12 + (DateTime.now().month - dob.month);
+            // final currentAgeMonths = (DateTime.now().year - dob.year) * 12 + (DateTime.now().month - dob.month);
 
             return CustomScrollView(
               slivers: [
-                // --- CUSTOM APP BAR (HEADER RINGKAS) ---
-               
+                // --- Custom Header
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                    child: Text(
+                      "Selamat Datang, $caregiverName",
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                
                 SliverList(
                   delegate: SliverChildListDelegate(
                     [
-                      const SizedBox(height: 16),
                       // --- KAD GABUNGAN BAYI ---
                       _buildBabyHeaderCard(babyName, ageText, localPhotoPath),
 
@@ -922,16 +944,14 @@ Widget _buildStyledTextField(TextEditingController controller, String label) {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Pastikan Scaffold menggunakan warna yang sama dengan background card, 
-      // atau biarkan ia transparent jika container background image di atas sudah menguruskan semuanya.
-      backgroundColor: Colors.transparent, // Menggunakan transparent di sini
+      // Background Transparent sebab PageView/HomeTab menguruskan latar belakang.
+      backgroundColor: Colors.transparent, 
       body: PageView(
         controller: _pageController,
         physics: const NeverScrollableScrollPhysics(),
         children: [
           _buildHomeTab(), // 0: Utama (Home)
-          // Untuk tab lain, anda mungkin perlu membungkusnya dalam Container 
-          // dengan background color kerana _buildHomeTab() sahaja yang ada imej latar.
+          // Tab lain dibiarkan tanpa background image
           MilestoneTab(), 
           VaccinesTab(), 
           TipsTab(),      

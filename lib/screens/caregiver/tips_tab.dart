@@ -328,7 +328,7 @@ Widget build(BuildContext context) {
                               Icon(Icons.search_off_rounded, color: neutralColor, size: 48),
                               const SizedBox(height: 8),
                               Text(
-                                'Tiada tips untuk kategori "${_selectedCategory}".',
+                                'Tiada tips untuk kategori "$_selectedCategory".',
                                 textAlign: TextAlign.center,
                                 style: textTheme.titleMedium?.copyWith(color: Colors.black54),
                               ),

@@ -31,7 +31,9 @@ class Baby {
   }
 }
 
-// VaccinesTab Widget
+// =====================================================================
+// VACCINESTAB WIDGET
+// =====================================================================
 class VaccinesTab extends StatefulWidget {
   const VaccinesTab({super.key});
 
@@ -46,100 +48,117 @@ class _VaccinesTabState extends State<VaccinesTab> {
   @override
   void initState() {
     super.initState();
+    // Inisialisasi time zone dan notifikasi
     tz.initializeTimeZones();
     NotificationService.init();
   }
-void _showAddVaccineDialog(BuildContext context) {
-  final nameController = TextEditingController();
-  final monthController = TextEditingController();
 
-  showDialog(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text("Tambah Vaksin Baru", style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor)),
+  void _showAddVaccineDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final monthController = TextEditingController();
+    final user = FirebaseAuth.instance.currentUser;
+    
+    // Peraturan Keselamatan: Hanya Admin yang boleh tambah vaksin ke koleksi master
+    if (user == null || user.uid != "YmMzPJ24Y2XDth6SGCJJ9wfEdxE2") {
+        _showSnackBar(context, "Anda tiada kebenaran untuk menambah vaksin master.", isError: true);
+        return;
+    }
 
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: "Nama Vaksin",
-                border: OutlineInputBorder(),
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text("Tambah Vaksin Baru", style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: "Nama Vaksin",
+                  border: OutlineInputBorder(),
+                ),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: monthController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Bulan Cadangan (Contoh: 6)",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("Batal"),
             ),
-            const SizedBox(height: 12),
-
-            TextField(
-              controller: monthController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: "Bulan (Contoh: 6)",
-                border: OutlineInputBorder(),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
               ),
+              onPressed: () async {
+                if (nameController.text.isEmpty || monthController.text.isEmpty) {
+                  _showSnackBar(context, "Sila isi semua maklumat", isError: true);
+                  return;
+                }
+                
+                // SIMPAN KE FIRESTORE DALAM COLLECTION ADMIN VACCINES
+                try {
+                    await FirebaseFirestore.instance.collection("vaccines").add({
+                      'name': nameController.text.trim(),
+                      'month': int.tryParse(monthController.text.trim()) ?? 0,
+                      'custom': true, // tanda custom
+                      'created_at': FieldValue.serverTimestamp(),
+                    });
+
+                    if (mounted) {
+                        Navigator.pop(dialogContext);
+                        _showSnackBar(context, "Vaksin berjaya ditambah!");
+                    }
+                } catch (e) {
+                    if (mounted) {
+                        Navigator.pop(dialogContext);
+                        _showSnackBar(context, "Gagal menambah vaksin. Sila semak kebenaran: $e", isError: true);
+                    }
+                }
+              },
+              child: const Text("Simpan", style: TextStyle(color: Colors.white)),
             ),
           ],
-        ),
-
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Batal"),
-          ),
-
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-            ),
-            onPressed: () async {
-              if (nameController.text.isEmpty || monthController.text.isEmpty) {
-                _showSnackBar(context, "Sila isi semua maklumat", isError: true);
-                return;
-              }
-
-              // ------ SIMPAN KE FIRESTORE DALAM COLLECTION ADMIN VACCINES ------
-              await FirebaseFirestore.instance.collection("vaccines").add({
-                'name': nameController.text.trim(),
-                'month': int.tryParse(monthController.text.trim()) ?? 0,
-                'custom': true, // tanda custom
-                'created_at': FieldValue.serverTimestamp(),
-              });
-
-              Navigator.pop(context);
-              _showSnackBar(context, "Vaksin berjaya ditambah!");
-            },
-            child: const Text("Simpan", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      );
-    },
-  );
-}
-
-  void _showSnackBar(BuildContext context, String message,
-      {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message,
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w600)),
-        backgroundColor: isError ? Colors.red.shade700 : primaryColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(10),
-      ),
+        );
+      },
     );
   }
 
+  void _showSnackBar(BuildContext context, String message,
+      {bool isError = false}) {
+    if (mounted) { 
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message,
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600)),
+            backgroundColor: isError ? Colors.red.shade700 : primaryColor,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(10),
+          ),
+        );
+    }
+  }
+
+  // Fungsi untuk mendapatkan kiraan status vaksin
   Future<Map<String, int>> _getVaccineStatusCounts(
       CollectionReference babyVaccinesCollection) async {
+    // 1. Ambil semua vaksin master (admin)
     final adminVaccinesSnapshot =
         await FirebaseFirestore.instance.collection('vaccines').get();
-    if (adminVaccinesSnapshot.docs.isEmpty) return {'pending': 0, 'taken': 0};
-
+    
+    // 2. Ambil rekod vaksin bayi
     final babyVaccinesSnapshot = await babyVaccinesCollection.get();
     final Map<String, dynamic> userVaccineData = {};
     for (var doc in babyVaccinesSnapshot.docs) {
@@ -149,10 +168,13 @@ void _showAddVaccineDialog(BuildContext context) {
     int pendingCount = 0;
     int takenCount = 0;
 
+    // 3. Bandingkan
     for (var vaccineDoc in adminVaccinesSnapshot.docs) {
       final vaccineId = vaccineDoc.id;
+      // Semak rekod pengguna
       final data = userVaccineData[vaccineId];
       final bool taken = data != null ? (data['taken'] ?? false) : false;
+      
       if (taken) {
         takenCount++;
       } else {
@@ -164,199 +186,197 @@ void _showAddVaccineDialog(BuildContext context) {
   }
 
   @override
-Widget build(BuildContext context) {
-  final user = FirebaseAuth.instance.currentUser;
-  final textTheme = Theme.of(context).textTheme;
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final textTheme = Theme.of(context).textTheme;
 
-  return Scaffold(
-    backgroundColor: backgroundColor,
-    body: Container(
-      decoration: BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage("assets/images/wallpaper1.jpg"),
-          fit: BoxFit.cover,
-          opacity: 0.9, // lembut
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage("assets/images/wallpaper1.jpg"),
+            fit: BoxFit.cover,
+            opacity: 0.9, 
+          ),
         ),
-      ),
+        child: StreamBuilder<QuerySnapshot>(
+          // Mendapatkan rekod bayi yang paling baru (had 1)
+          stream: user != null
+              ? FirebaseFirestore.instance
+                  .collection('caregivers')
+                  .doc(user.uid)
+                  .collection('babies')
+                  .orderBy('created_at', descending: true)
+                  .limit(1)
+                  .snapshots()
+              : const Stream.empty(),
+          builder: (context, babiesSnapshot) {
+            if (user == null) return _buildAuthPlaceholder(textTheme); // DIPERBAIKI
+            if (babiesSnapshot.connectionState == ConnectionState.waiting) {
+              return Center(child: CircularProgressIndicator(color: primaryColor));
+            }
+            if (!babiesSnapshot.hasData || babiesSnapshot.data!.docs.isEmpty) {
+              return _buildNoBabyPlaceholder(textTheme); // DIPERBAIKI
+            }
 
-      child: StreamBuilder<QuerySnapshot>(
-        stream: user != null
-            ? FirebaseFirestore.instance
+            final babyDoc = babiesSnapshot.data!.docs.first;
+            final baby = Baby.fromFirestore(babyDoc);
+            
+            // RUJUKAN KEPADA SUBKOLEKSI VAKSIN BAYI
+            final babyVaccinesCollection = FirebaseFirestore.instance
                 .collection('caregivers')
                 .doc(user.uid)
                 .collection('babies')
-                .orderBy('created_at', descending: true)
-                .limit(1)
-                .snapshots()
-            : const Stream.empty(),
+                .doc(baby.id)
+                .collection('vaccine_records');
 
-        builder: (context, babiesSnapshot) {
-          if (user == null) return _buildAuthPlaceholder(textTheme);
-          if (babiesSnapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator(color: primaryColor));
-          }
-          if (!babiesSnapshot.hasData || babiesSnapshot.data!.docs.isEmpty) {
-            return _buildNoBabyPlaceholder(textTheme);
-          }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(context, textTheme, baby, babyVaccinesCollection),
 
-          final babyDoc = babiesSnapshot.data!.docs.first;
-          final baby = Baby.fromFirestore(babyDoc);
-          final babyVaccinesCollection = FirebaseFirestore.instance
-              .collection('caregivers')
-              .doc(user.uid)
-              .collection('babies')
-              .doc(baby.id)
-              .collection('vaccines');
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(textTheme, baby, babyVaccinesCollection),
-
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Tapis Mengikut Status:',
-                      style: textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: statusOptions.map((status) {
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: ChoiceChip(
-                              label: Text(status),
-                              selected: _statusFilter == status,
-                              onSelected: (selected) {
-                                if (selected) setState(() => _statusFilter = status);
-                              },
-                              selectedColor: secondaryColor.withOpacity(0.9),
-                              backgroundColor: Colors.white,
-                              elevation: 2,
-                              pressElevation: 5,
-                              labelStyle: TextStyle(
-                                color: _statusFilter == status ? Colors.white : Colors.black87,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-
-                    const Divider(height: 1, thickness: 1, color: Colors.grey),
-                  ],
-                ),
-              ),
-
-              Expanded(
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('vaccines')
-                      .orderBy('name')
-                      .snapshots(),
-
-                  builder: (context, adminVaccinesSnapshot) {
-                    if (adminVaccinesSnapshot.connectionState == ConnectionState.waiting) {
-                      return Center(child: CircularProgressIndicator(color: primaryColor));
-                    }
-                    if (!adminVaccinesSnapshot.hasData ||
-                        adminVaccinesSnapshot.data!.docs.isEmpty) {
-                      return const Center(
-                        child: Text(
-                          "Tiada jadual vaksin dari admin.",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.black54),
+                // Penapis Status
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Tapis Mengikut Status:',
+                        style: textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
                         ),
-                      );
-                    }
+                      ),
+                      const SizedBox(height: 8),
 
-                    final adminVaccines = adminVaccinesSnapshot.data!.docs;
-
-                    // Sorting ikut bulan
-                    adminVaccines.sort((a, b) {
-                      int monthA = int.tryParse(a['month']?.toString() ?? '0') ?? 0;
-                      int monthB = int.tryParse(b['month']?.toString() ?? '0') ?? 0;
-                      return monthA.compareTo(monthB);
-                    });
-
-                    return ListView.separated(
-                      padding: const EdgeInsets.all(8),
-                      itemCount: adminVaccines.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final vaccine = adminVaccines[index];
-                        final vaccineId = vaccine.id;
-                        final vaccineName = vaccine['name'] ?? 'Nama vaksin tidak tersedia';
-
-                        final month = int.tryParse(vaccine['month']?.toString() ?? '');
-
-                        // Age text (Newborn / bulan)
-                        final babyMonth = baby.dob != null
-                            ? ((DateTime.now().year - baby.dob!.year) * 12 +
-                                DateTime.now().month - baby.dob!.month)
-                            : null;
-
-                        String ageText;
-                        if (month == 0 || (babyMonth != null && babyMonth < 1)) {
-                          ageText = 'Waktu Cadangan: Newborn';
-                        } else {
-                          ageText = month != null
-                              ? 'Waktu Cadangan: $month Bulan'
-                              : 'Waktu Cadangan: -';
-                        }
-
-                        return _VaccineCard(
-                          vaccineId: vaccineId,
-                          vaccineName: vaccineName,
-                          recommendedMonth: month,
-                          ageText: ageText,
-                          babyDob: baby.dob,
-                          babyVaccinesCollection: babyVaccinesCollection,
-                          showSnackBar: _showSnackBar,
-                          primaryColor: primaryColor,
-                          secondaryColor: secondaryColor,
-                          textTheme: textTheme,
-                          statusFilter: _statusFilter,
-                        );
-                      },
-                    );
-                  },
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: statusOptions.map((status) {
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: ChoiceChip(
+                                label: Text(status),
+                                selected: _statusFilter == status,
+                                onSelected: (selected) {
+                                  if (selected) setState(() => _statusFilter = status);
+                                },
+                                selectedColor: secondaryColor.withAlpha(230),
+                                backgroundColor: Colors.white,
+                                elevation: 2,
+                                pressElevation: 5,
+                                labelStyle: TextStyle(
+                                  color: _statusFilter == status ? Colors.white : Colors.black87,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const Divider(height: 1, thickness: 1, color: Colors.grey),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          );
-        },
+
+                // Senarai Vaksin Master
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('vaccines') // Koleksi Master
+                        .orderBy('month') // Sorting ikut bulan cadangan
+                        .snapshots(),
+                    builder: (context, adminVaccinesSnapshot) {
+                      if (adminVaccinesSnapshot.connectionState == ConnectionState.waiting) {
+                        return Center(child: CircularProgressIndicator(color: primaryColor));
+                      }
+                      if (!adminVaccinesSnapshot.hasData ||
+                          adminVaccinesSnapshot.data!.docs.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            "Tiada jadual vaksin master dijumpai.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                        );
+                      }
+
+                      final adminVaccines = adminVaccinesSnapshot.data!.docs;
+                      
+                      return ListView.separated(
+                        padding: const EdgeInsets.all(8),
+                        itemCount: adminVaccines.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final vaccine = adminVaccines[index];
+                          final vaccineId = vaccine.id;
+                          final vaccineName = vaccine['name'] ?? 'Nama vaksin tidak tersedia';
+                          final month = int.tryParse(vaccine['month']?.toString() ?? '');
+
+                          // Kira Umur Bayi dalam Bulan
+                          final babyMonth = baby.dob != null
+                              ? ((DateTime.now().year - baby.dob!.year) * 12 +
+                                  DateTime.now().month - baby.dob!.month)
+                              : null;
+
+                          // Teks Umur Cadangan
+                          String ageText;
+                          if (month == 0 || (babyMonth != null && babyMonth < 1)) {
+                            ageText = 'Waktu Cadangan: Newborn (Bulan 0)';
+                          } else {
+                            ageText = month != null
+                                ? 'Waktu Cadangan: $month Bulan'
+                                : 'Waktu Cadangan: -';
+                          }
+
+                          // PAPARKAN KAD VAKSIN
+                          return _VaccineCard(
+                            vaccineId: vaccineId,
+                            vaccineName: vaccineName,
+                            recommendedMonth: month,
+                            ageText: ageText,
+                            babyDob: baby.dob,
+                            babyVaccinesCollection: babyVaccinesCollection,
+                            showSnackBar: _showSnackBar,
+                            primaryColor: primaryColor,
+                            secondaryColor: secondaryColor,
+                            textTheme: textTheme,
+                            statusFilter: _statusFilter,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
-    ),
-    floatingActionButton: FloatingActionButton.extended(
-  backgroundColor: primaryColor,
-  icon: const Icon(Icons.add, color: Colors.white),
-  label: const Text(
-    "Tambah Vaksin",
-    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-  ),
-  onPressed: () => _showAddVaccineDialog(context),
-),
-  );
-}
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: primaryColor,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text(
+          "Tambah Vaksin (Admin)", // Label untuk admin
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        onPressed: () => _showAddVaccineDialog(context),
+      ),
+    );
+  }
 
+  // =====================================================================
+  // FUNGSI BUILDER YANG HILANG (DIPERBAIKI)
+  // =====================================================================
 
-  Widget _buildAuthPlaceholder(TextTheme textTheme) {
+  Widget _buildAuthPlaceholder(TextTheme textTheme) { // DIPERBAIKI: Pindahkan ke dalam State
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.lock_outline, color: Colors.blue, size: 50),
+          const Icon(Icons.lock_outline, color: primaryColor, size: 50),
           const SizedBox(height: 10),
           Text("Sila log masuk untuk melihat rekod vaksin.",
               style: textTheme.titleMedium
@@ -366,12 +386,12 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _buildNoBabyPlaceholder(TextTheme textTheme) {
+  Widget _buildNoBabyPlaceholder(TextTheme textTheme) { // DIPERBAIKI: Pindahkan ke dalam State
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.child_care, color: Colors.blue, size: 50),
+          const Icon(Icons.child_care, color: primaryColor, size: 50),
           const SizedBox(height: 10),
           Text("Tiada rekod bayi dijumpai.",
               style: textTheme.titleMedium
@@ -384,7 +404,7 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _buildHeader(TextTheme textTheme, Baby baby,
+  Widget _buildHeader(BuildContext context, TextTheme textTheme, Baby baby,
       CollectionReference babyVaccinesCollection) {
     return Container(
       width: double.infinity,
@@ -412,9 +432,10 @@ Widget build(BuildContext context) {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: primaryColor.withOpacity(0.05),
+              // DIPERBAIKI: Membuang argumen 'color' yang berulang
               borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: primaryColor.withOpacity(0.2)),
+              color: primaryColor.withAlpha(25), 
+              border: Border.all(color: primaryColor.withAlpha(50)),
             ),
             child: FutureBuilder<Map<String, int>>(
               future: _getVaccineStatusCounts(babyVaccinesCollection),
@@ -467,61 +488,9 @@ Widget build(BuildContext context) {
   }
 }
 
-void _showGrowthDetails(BuildContext context, DocumentSnapshot vaccineDoc) async {
-  // Ambil data growth dari Firestore
-  final babyDoc = vaccineDoc.reference.parent.parent!; // doc bayi
-  final growthSnap = await babyDoc.collection('growth_records')
-      .where('vaccineId', isEqualTo: vaccineDoc.id)
-      .orderBy('date', descending: true)
-      .limit(1)
-      .get();
-
-  double? weight;
-  double? height;
-  String? note;
-
-  if (growthSnap.docs.isNotEmpty) {
-    final data = growthSnap.docs.first.data() as Map<String, dynamic>;
-    weight = data['weight'];
-    height = data['height'];
-    note = data['note'];
-  }
-
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: Colors.transparent,
-    builder: (_) => Container(
-      padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Maklumat Perkembangan Bayi",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF007BFF))),
-          const SizedBox(height: 12),
-          Text("Berat: ${weight?.toStringAsFixed(1) ?? '-'} kg"),
-          Text("Tinggi: ${height?.toStringAsFixed(0) ?? '-'} cm"),
-          Text("Nota: ${note ?? '-'}"),
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Tutup"),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-// --- Vaccine Card with Age Check ---
-// --- Vaccine Card with Age Check + View Note Icon ---
+// =====================================================================
+// VACCINE CARD WIDGET
+// =====================================================================
 class _VaccineCard extends StatelessWidget {
   final String vaccineId;
   final String vaccineName;
@@ -552,38 +521,44 @@ class _VaccineCard extends StatelessWidget {
   int? _calculateBabyMonth(DateTime? dob) {
     if (dob == null) return null;
     final now = DateTime.now();
+    // Mengira perbezaan bulan
     return (now.year - dob.year) * 12 + now.month - dob.month;
   }
 
   bool _isVaccineAppropriate() {
     final babyMonth = _calculateBabyMonth(babyDob);
     if (babyMonth == null || recommendedMonth == null) return false;
-    return (recommendedMonth! - babyMonth).abs() <= 2; // ±2 months allowed
+    // Benarkan vaksin diambil dalam julat ±2 bulan dari waktu cadangan
+    return (recommendedMonth! - babyMonth).abs() <= 2; 
   }
 
   Future<void> _pickDateTime(BuildContext context) async {
     if (!_isVaccineAppropriate()) {
       showSnackBar(context,
-          "Vaksin ini belum sesuai untuk umur bayi sekarang.", isError: true);
+          "Vaksin ini belum sesuai untuk umur bayi sekarang. Rujuk jadual cadangan.", isError: true);
       return;
     }
 
+    // Pemilihan Tarikh
     DateTime? date = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime(2035),
     );
-    if (date == null) return;
+    if (date == null || !context.mounted) return;
 
+    // Pemilihan Masa
     TimeOfDay? time = await showTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 12, minute: 0),
     );
-    if (time == null) return;
+    if (time == null || !context.mounted) return;
 
     final selected =
         DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    
+    // Set Timezone untuk Notifikasi
     final malayTimeZone = tz.getLocation('Asia/Kuala_Lumpur');
     final tzDate = tz.TZDateTime(
       malayTimeZone,
@@ -603,30 +578,56 @@ class _VaccineCard extends StatelessWidget {
     await NotificationService.cancelNotification(notifId);
 
     final formattedTime = DateFormat('dd MMM yyyy, hh:mm a').format(tzDate);
+    // Jadualkan Notifikasi
     await NotificationService.scheduleNotification(
       id: notifId,
       title: "Vaksin Reminder",
-      body: "Ingat! Vaksin $vaccineName pada $formattedTime",
+      body: "Ingat! Vaksin $vaccineName dijadualkan pada $formattedTime",
       scheduledDate: tzDate,
     );
 
+    // Simpan ke Firestore
     await babyVaccinesCollection.doc(vaccineId).set({
-      'dateScheduled': Timestamp.fromDate(selected),
+      'dateScheduled': Timestamp.fromDate(selected), // Disimpan!
       'notifId': notifId,
+      'taken': false, // Pastikan set ke false
+      'vaccineName': vaccineName,
+      'recommendedMonth': recommendedMonth,
     }, SetOptions(merge: true));
 
-    showSnackBar(context, "Reminder berjaya diset!");
+    if (context.mounted) {
+        showSnackBar(context, "Reminder berjaya diset untuk $formattedTime!");
+    }
   }
 
-  Future<void> _toggleTaken(DocumentSnapshot? snapshot) async {
+  Future<void> _toggleTaken(BuildContext context, DocumentSnapshot? snapshot) async {
     final current = (snapshot?.data() as Map?)?['taken'] == true;
+    final bool nextTakenState = !current;
     final int notifId = vaccineId.hashCode & 0x7fffffff;
-    if (!current) await NotificationService.cancelNotification(notifId);
 
-    await babyVaccinesCollection.doc(vaccineId).set({
-      'taken': !current,
-      if (current) 'dateScheduled': FieldValue.delete(),
-    }, SetOptions(merge: true));
+    if (nextTakenState) {
+      // Jika ditandakan SELESAI
+      await NotificationService.cancelNotification(notifId);
+      await babyVaccinesCollection.doc(vaccineId).set({
+        'taken': true,
+        'dateTaken': FieldValue.serverTimestamp(), // Tarikh selesai
+      }, SetOptions(merge: true));
+      
+      if (context.mounted) {
+        showSnackBar(context, "Vaksin $vaccineName telah ditandakan selesai.");
+      }
+
+    } else {
+      // Jika dibatalkan tanda SELESAI
+      await babyVaccinesCollection.doc(vaccineId).set({
+        'taken': false,
+        'dateTaken': FieldValue.delete(), // Buang tarikh selesai
+      }, SetOptions(merge: true));
+
+      if (context.mounted) {
+        showSnackBar(context, "Tanda selesai $vaccineName telah dibatalkan.", isError: true);
+      }
+    }
   }
 
   void _showGrowthDetails(BuildContext context) async {
@@ -642,11 +643,13 @@ class _VaccineCard extends StatelessWidget {
     String? note;
 
     if (growthSnap.docs.isNotEmpty) {
-      final data = growthSnap.docs.first.data() as Map<String, dynamic>;
-      weight = data['weight'];
-      height = data['height'];
-      note = data['note'];
+      final data = growthSnap.docs.first.data();
+      weight = data['weight'] as double?;
+      height = data['height'] as double?;
+      note = data['note'] as String?;
     }
+
+    if (!context.mounted) return;
 
     showModalBottomSheet(
       context: context,
@@ -686,16 +689,24 @@ class _VaccineCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // StreamBuilder untuk mendengar perubahan pada dokumen rekod vaksin bayi
     return StreamBuilder<DocumentSnapshot>(
       stream: babyVaccinesCollection.doc(vaccineId).snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data() as Map<String, dynamic>?;
         final bool taken = data?['taken'] == true;
+        
+        // Ambil tarikh dijadualkan
         final DateTime? scheduled = data?['dateScheduled'] != null
             ? (data!['dateScheduled'] as Timestamp).toDate()
             : null;
+        
+        // Ambil tarikh diambil
+        final DateTime? dateTaken = data?['dateTaken'] != null
+            ? (data!['dateTaken'] as Timestamp).toDate()
+            : null;
 
-        // Filter by status
+        // Logik Penapis Status
         if ((statusFilter == 'Belum Selesai' && taken) ||
             (statusFilter == 'Selesai' && !taken)) {
           return const SizedBox.shrink();
@@ -745,19 +756,19 @@ class _VaccineCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    // Icon nota tepi nama vaksin
+                    // Icon nota tepi nama vaksin (Hanya aktif jika taken=true)
                     GestureDetector(
-        onTap: taken
-            ? () => _showGrowthDetails(context) // hanya boleh tekan jika taken = true
-            : null,
-        child: CircleAvatar(
-          radius: 12,
-          backgroundColor: taken ? Colors.white : Colors.grey.shade400,
-          child: Icon(
-            Icons.note_alt,
-            size: 16,
-            color: taken ? Colors.blueAccent : Colors.grey.shade700,
-          ),
+                      onTap: taken
+                          ? () => _showGrowthDetails(context)
+                          : null,
+                      child: CircleAvatar(
+                        radius: 12,
+                        backgroundColor: taken ? Colors.white : Colors.grey.shade400,
+                        child: Icon(
+                          Icons.note_alt,
+                          size: 16,
+                          color: taken ? Colors.blueAccent : Colors.grey.shade700,
+                        ),
                       ),
                     ),
                   ],
@@ -777,9 +788,11 @@ class _VaccineCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        scheduled != null
-                            ? 'Tarikh: ${DateFormat('dd MMM yyyy, hh:mm a').format(scheduled)}'
-                            : ageText,
+                        taken
+                            ? 'Selesai: ${DateFormat('dd MMM yyyy').format(dateTaken!)}'
+                            : scheduled != null
+                                ? 'Dijadualkan: ${DateFormat('dd MMM yyyy, hh:mm a').format(scheduled)}'
+                                : ageText, // Jika tiada rekod, guna teks umur cadangan
                         style: TextStyle(
                           color: taken ? Colors.green.shade800 : Colors.blue.shade900,
                           fontWeight: FontWeight.w600,
@@ -801,7 +814,10 @@ class _VaccineCard extends StatelessWidget {
                                 value: taken,
                                 activeColor: Colors.green.shade600,
                                 checkColor: Colors.white,
-                                onChanged: scheduled != null ? (value) => _toggleTaken(snap.data) : null,
+                                // Boleh tekan jika scheduled sudah ada, atau jika ianya sudah taken (untuk un-check)
+                                onChanged: scheduled != null || taken 
+                                    ? (value) => _toggleTaken(context, snap.data)
+                                    : null,
                               ),
                             ),
                             const SizedBox(width: 6),
@@ -816,7 +832,7 @@ class _VaccineCard extends StatelessWidget {
                               style: TextStyle(
                                 color: scheduled == null
                                     ? isButtonActive
-                                        ? Colors.red
+                                        ? Colors.red 
                                         : Colors.orange
                                     : taken
                                         ? Colors.green.shade800

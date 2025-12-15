@@ -8,12 +8,10 @@ const Color primaryColor = Color(0xFF007AFF); // Biru Kuat
 const Color accentColor = Color(0xFF34C759); // Hijau
 const Color errorColor = Color(0xFFFF3B30); // Merah
 const Color backgroundColor = Color(0xFFF5F7FA);
-const Color cardColor = Colors.white; 
-const Color textColor = Color(0xFF1C1C1E); 
-const Color lightGrey = Color(0xFFE5E5EA); 
+const Color cardColor = Colors.white;
+const Color textColor = Color(0xFF1C1C1E);
+const Color lightGrey = Color(0xFFE5E5EA);
 // ===============================================================
-
-int selectedMonth = 0; // default index
 
 /// Model Milestone
 class Milestone {
@@ -39,6 +37,7 @@ class Milestone {
       id: doc.id,
       name: data['name'] ?? 'Tiada Tajuk',
       category: data['category'] ?? 'Am',
+      // Pastikan data umur diolah dengan betul sebagai integer (menggunakan num? untuk melindungi dari jenis data yang salah)
       ageFrom: (data['age_from'] as num?)?.toInt() ?? 0,
       ageTo: (data['age_to'] as num?)?.toInt() ?? 999,
       description: data['description'] ?? 'Tiada huraian disediakan.',
@@ -60,7 +59,8 @@ class Baby {
     return Baby(
       id: doc.id,
       name: data['name'] ?? 'Bayi Saya',
-      dateOfBirth: (data['date_of_birth'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      // Mengambil 'date_of_birth' yang mungkin disimpan sebagai FieldValue.serverTimestamp() atau Timestamp
+      dateOfBirth: (data['dob'] as Timestamp?)?.toDate() ?? DateTime.now(),
       photoUrl: data['photo_url'],
     );
   }
@@ -75,8 +75,49 @@ class MilestoneTab extends StatefulWidget {
 }
 
 class _MilestoneTabState extends State<MilestoneTab> {
-  
-    Future<void> _toggleAchieved({
+  int selectedIndex = 0;
+
+  // Daftar Julat Bulan
+  final List<Map<String, dynamic>> months = [
+    {"label": "0–2", "from": 0, "to": 2},
+    {"label": "3–4", "from": 3, "to": 4},
+    {"label": "5–6", "from": 5, "to": 6},
+    {"label": "9–10", "from": 9, "to": 10},
+    {"label": "12–15", "from": 12, "to": 15},
+  ];
+
+  // Kategori yang dijangkakan dalam Koleksi Master
+  final List<String> categories = ['Kognitif', 'Komunikasi', 'Sosial', 'Pergerakan'];
+
+  final CollectionReference milestonesCollection =
+      FirebaseFirestore.instance.collection('milestones');
+
+  Map<String, Color> categoryColors = {
+    'kognitif': const Color(0xFF32ADE6),
+    'komunikasi': const Color(0xFFFF9500),
+    'sosial': const Color(0xFFFFCC00),
+    'pergerakan': accentColor,
+    'lain-lain': const Color(0xFFA2845E),
+  };
+
+  Color _getCategoryColor(String category) {
+    return categoryColors[category.toLowerCase()] ?? categoryColors['lain-lain']!;
+  }
+
+  // Future untuk memegang data Master Milestone
+  late Future<List<Milestone>> _masterMilestonesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Inisialisasi Future untuk memuatkan data master sekali sahaja
+    _masterMilestonesFuture = _fetchMasterMilestones();
+  }
+
+  // ============== LOGIK TOGGLE ACHIEVED BARU/DIUBAH ==============
+
+  /// Menukar status capaian milestone.
+  Future<void> _toggleAchieved({
     required String babyId,
     required String milestoneId,
     required bool currentlyAchieved,
@@ -92,17 +133,25 @@ class _MilestoneTabState extends State<MilestoneTab> {
         .collection('milestones')
         .doc(milestoneId);
 
-    if (currentlyAchieved) {
-      await docRef.delete();
-    } else {
-      await docRef.set({
-        'achieved': true,
-        'achieved_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    try {
+      if (currentlyAchieved) {
+        // Jika sudah dicapai, PADAM rekod
+        await docRef.delete();
+      } else {
+        // Jika belum dicapai, TAMBAH rekod
+        await docRef.set({
+          'achieved': true,
+          'achieved_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar(context, 'Ralat: Gagal kemas kini status milestone.', isError: true);
+      }
     }
   }
 
-  /// Toggle milestone dengan pilih tarikh
+  // Fungsi asal dengan tarikh (dikekalkan, tetapi tidak digunakan)
   Future<void> _toggleAchievedWithDate({
     required String babyId,
     required String milestoneId,
@@ -124,38 +173,21 @@ class _MilestoneTabState extends State<MilestoneTab> {
       'achieved_at': Timestamp.fromDate(achievedDate),
     }, SetOptions(merge: true));
   }
-  int selectedIndex = 0;
 
-  final List<Map<String, dynamic>> months = [
-    {"label": "0–2", "from": 0, "to": 2},
-    {"label": "3–4", "from": 3, "to": 4},
-    {"label": "5–6", "from": 5, "to": 6},
-    {"label": "9–10", "from": 9, "to": 10},
-    {"label": "12–15", "from": 12, "to": 15},
-  ];
+  // ============== FUTURE DATA & LOGIK PERKIRAAN ==============
 
-  final List<String> categories = ['Kognitif', 'Komunikasi', 'Sosial', 'Pergerakan'];
+  // Ganti Stream dengan Future untuk memuatkan data master sekali sahaja.
+  Future<List<Milestone>> _fetchMasterMilestones() async {
+    // Memuatkan SEMUA Milestone dari Koleksi Master
+    final snapshot = await milestonesCollection.orderBy('age_from').get();
 
-  final CollectionReference milestonesCollection =
-      FirebaseFirestore.instance.collection('milestones');
+    // Ini menangkap jika tiada dokumen yang dibenarkan untuk dibaca oleh Firestore Rules
+    if (snapshot.docs.isEmpty) {
+      throw Exception(
+          "Tiada milestone master ditemui atau akses dinafikan. Pastikan Firestore Rules membenarkan 'read' oleh isAuthenticated().");
+    }
 
-  Map<String, Color> categoryColors = {
-    'kognitif': const Color(0xFF32ADE6),
-    'komunikasi': const Color(0xFFFF9500),
-    'sosial': const Color(0xFFFFCC00),
-    'pergerakan': accentColor,
-    'lain-lain': const Color(0xFFA2845E),
-  };
-
-  Color _getCategoryColor(String category) {
-    return categoryColors[category.toLowerCase()] ?? categoryColors['lain-lain']!;
-  }
-
- 
-
-
-  Stream<QuerySnapshot> _milestoneStream() {
-    return milestonesCollection.orderBy('age_from').snapshots();
+    return snapshot.docs.map((d) => Milestone.fromFirestore(d)).toList();
   }
 
   double _calculateCategoryProgress(
@@ -163,13 +195,13 @@ class _MilestoneTabState extends State<MilestoneTab> {
     final selectedFrom = months[selectedIndex]['from'] as int;
     final selectedTo = months[selectedIndex]['to'] as int;
 
-    final filteredMilestones = allMilestones
-        .where((m) => m.ageFrom <= selectedTo && m.ageTo >= selectedFrom)
-        .toList();
+    // Tapis milestone mengikut julat umur semasa yang dipilih
+    final filteredMilestones =
+        allMilestones.where((m) => m.ageFrom <= selectedTo && m.ageTo >= selectedFrom).toList();
 
-    final catMilestones = filteredMilestones
-        .where((m) => m.category.toLowerCase() == category.toLowerCase())
-        .toList();
+    // Tapis mengikut kategori
+    final catMilestones =
+        filteredMilestones.where((m) => m.category.toLowerCase() == category.toLowerCase()).toList();
 
     if (catMilestones.isEmpty) return 0.0;
 
@@ -193,351 +225,359 @@ class _MilestoneTabState extends State<MilestoneTab> {
     );
   }
 
-Widget _buildMonthSelectorSliver(TextTheme textTheme) {
-  return Container(
-    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-    // color: Colors.white, // buang background putih
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Pilih Umur Bayi (bulan)',
-          style: textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: textColor,
+  // ============== WIDGET BUILDER ==============
+
+  Widget _buildMonthSelectorSliver(TextTheme textTheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Pilih Julat Umur (bulan)',
+            style: textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 50,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: months.length,
-            itemBuilder: (context, index) {
-              final selected = selectedIndex == index;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      selectedIndex = index;
-                    });
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: selected ? primaryColor : Colors.transparent,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: selected ? primaryColor : Colors.grey.shade400,
-                        width: 1.2,
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 50,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: months.length,
+              itemBuilder: (context, index) {
+                final selected = selectedIndex == index;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        selectedIndex = index;
+                      });
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: selected ? primaryColor : Colors.transparent,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: selected ? primaryColor : Colors.grey.shade400,
+                          width: 1.2,
+                        ),
+                        boxShadow: selected
+                            ? [
+                                BoxShadow(
+                                  color: primaryColor.withOpacity(0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ]
+                            : [],
                       ),
-                      boxShadow: selected
-                          ? [
-                              BoxShadow(
-                                color: primaryColor.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ]
-                          : [],
-                    ),
-                    child: Center(
-                      child: Text(
-                        months[index]["label"],
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: selected ? Colors.white : textColor,
-                          fontSize: 14,
+                      child: Center(
+                        child: Text(
+                          months[index]["label"],
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: selected ? Colors.white : textColor,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-  final textTheme = Theme.of(context).textTheme;
-  final user = FirebaseAuth.instance.currentUser;
+    final textTheme = Theme.of(context).textTheme;
+    final user = FirebaseAuth.instance.currentUser;
 
-  return Scaffold(
-    backgroundColor: backgroundColor,
-    body: Container(
-      decoration: BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage("assets/images/wallpaper1.jpg"),
-          fit: BoxFit.cover,
-          opacity: 0.9, // lembut
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage("assets/images/wallpaper1.jpg"),
+            fit: BoxFit.cover,
+            opacity: 0.9, // lembut
+          ),
         ),
-      ),
 
-      // ================== BODY MULA SINI ==================
-      child: user == null
-          ? Center(child: _authPlaceholder(textTheme))
-          : StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('caregivers')
-                  .doc(user.uid)
-                  .collection('babies')
-                  .orderBy('created_at', descending: true)
-                  .limit(1)
-                  .snapshots(),
-              builder: (context, babySnap) {
-                if (babySnap.connectionState == ConnectionState.waiting) {
-                  return Center(child: CircularProgressIndicator(color: primaryColor));
-                }
-                if (!babySnap.hasData || babySnap.data!.docs.isEmpty) {
-                  return Center(child: _noBabyPlaceholder(textTheme));
-                }
-
-                final babyDoc = babySnap.data!.docs.first;
-                final baby = Baby.fromFirestore(babyDoc);
-                final babyId = babyDoc.id;
-
-                final now = DateTime.now();
-                final ageDiff = now.difference(baby.dateOfBirth);
-                final babyAgeInMonths = (ageDiff.inDays / 30.4375).round();
-
-                final babyMilestonesStream = FirebaseFirestore.instance
+        // ================== BODY MULA SINI ==================
+        child: user == null
+            ? Center(child: _authPlaceholder(textTheme))
+            : StreamBuilder<QuerySnapshot>(
+                // Stream 1: Dapatkan data Bayi (untuk babyId)
+                stream: FirebaseFirestore.instance
                     .collection('caregivers')
                     .doc(user.uid)
                     .collection('babies')
-                    .doc(babyId)
-                    .collection('milestones')
-                    .snapshots();
+                    .orderBy('created_at', descending: true)
+                    .limit(1)
+                    .snapshots(),
+                builder: (context, babySnap) {
+                  if (babySnap.connectionState == ConnectionState.waiting) {
+                    return Center(child: CircularProgressIndicator(color: primaryColor));
+                  }
+                  if (!babySnap.hasData || babySnap.data!.docs.isEmpty) {
+                    return Center(child: _noBabyPlaceholder(textTheme));
+                  }
 
-                return StreamBuilder<QuerySnapshot>(
-                  stream: _milestoneStream(),
-                  builder: (context, milestoneSnap) {
-                    if (milestoneSnap.connectionState == ConnectionState.waiting) {
-                      return Center(child: CircularProgressIndicator(color: primaryColor));
-                    }
-                    if (!milestoneSnap.hasData || milestoneSnap.data!.docs.isEmpty) {
-                      return Center(
-                          child: Text('Tiada milestone tersedia.', style: textTheme.titleMedium));
-                    }
+                  final babyDoc = babySnap.data!.docs.first;
+                  final baby = Baby.fromFirestore(babyDoc);
+                  final babyId = babyDoc.id;
 
-                    final allMilestones = milestoneSnap.data!.docs
-                        .map((d) => Milestone.fromFirestore(d))
-                        .toList();
+                  final now = DateTime.now();
+                  final ageDiff = now.difference(baby.dateOfBirth);
+                  final babyAgeInMonths = (ageDiff.inDays / 30.4375).round();
 
-                    final selectedFrom = months[selectedIndex]['from'] as int;
-                    final selectedTo = months[selectedIndex]['to'] as int;
+                  // Stream 2: Dapatkan rekod Milestone yang dicapai oleh Bayi ini
+                  final babyMilestonesStream = FirebaseFirestore.instance
+                      .collection('caregivers')
+                      .doc(user.uid)
+                      .collection('babies')
+                      .doc(babyId)
+                      .collection('milestones')
+                      .snapshots();
 
-                    final filteredMilestones = allMilestones
-                        .where((m) => m.ageFrom <= selectedTo && m.ageTo >= selectedFrom)
-                        .toList();
+                  // Future 3: Dapatkan SEMUA Milestone Master dari Admin (Sekali sahaja)
+                  return FutureBuilder<List<Milestone>>(
+                    // Menggunakan Future yang diinisialisasi dalam initState
+                    future: _masterMilestonesFuture,
+                    builder: (context, milestoneSnap) {
+                      if (milestoneSnap.connectionState == ConnectionState.waiting) {
+                        return Center(child: CircularProgressIndicator(color: primaryColor));
+                      }
+                      // Menangani Ralat atau Tiada Data Master
+                      if (milestoneSnap.hasError || !milestoneSnap.hasData) {
+                        // Paparkan Ralat (contohnya, tiada kebenaran/akses)
+                        final errorMessage = milestoneSnap.error.toString().contains('not found')
+                            ? 'Ralat: Tiada milestone Master dijumpai.'
+                            : 'Ralat memuatkan Master Milestone: ${milestoneSnap.error}';
+                        return Center(child: Text(errorMessage, style: textTheme.titleMedium));
+                      }
 
-                    final Map<String, List<Milestone>> grouped = {};
-                    for (var cat in categories) grouped[cat] = [];
-                    for (var m in filteredMilestones) {
-                      final key = categories.firstWhere(
-                        (c) => c.toLowerCase() == m.category.toLowerCase(),
-                        orElse: () => 'Lain-lain',
-                      );
-                      grouped[key]!.add(m);
-                    }
+                      // Data Master Milestone yang dimuatkan dari Future
+                      final allMilestones = milestoneSnap.data!;
 
-                    return StreamBuilder<QuerySnapshot>(
-                      stream: babyMilestonesStream,
-                      builder: (context, babyMilestoneSnap) {
-                        final Map<String, bool> achievedMap = {};
-                        final Map<String, DateTime?> achievedDateMap = {};
+                      final selectedFrom = months[selectedIndex]['from'] as int;
+                      final selectedTo = months[selectedIndex]['to'] as int;
 
-                        if (babyMilestoneSnap.hasData) {
-                          for (var doc in babyMilestoneSnap.data!.docs) {
-                            final data = doc.data() as Map<String, dynamic>?;
-                            achievedMap[doc.id] = data?['achieved'] == true;
+                      // Tapis Milestone mengikut Julat Umur yang Dipilih
+                      final filteredMilestones = allMilestones
+                          .where((m) => m.ageFrom <= selectedTo && m.ageTo >= selectedFrom)
+                          .toList();
 
-                            final Timestamp? ts = data?['achieved_at'] as Timestamp?;
-                            achievedDateMap[doc.id] = ts?.toDate();
+                      // Kumpulkan Milestone mengikut Kategori
+                      final Map<String, List<Milestone>> grouped = {};
+                      for (var cat in categories) {
+                        grouped[cat] = [];
+                      }
+                      for (var m in filteredMilestones) {
+                        final key = categories.firstWhere(
+                          (c) => c.toLowerCase() == m.category.toLowerCase(),
+                          orElse: () => 'Lain-lain',
+                        );
+                        if (grouped.containsKey(key)) {
+                          grouped[key]!.add(m);
+                        } else {
+                          // Ini mungkin berlaku jika ada kategori baru dalam master yang tiada dalam list categories
+                          grouped[key] = [m];
+                        }
+                      }
+
+                      // Stream 4: Menggabungkan data Master dan status Capaian Bayi
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: babyMilestonesStream, // Stream yang dimuatkan dari Stream 1
+                        builder: (context, babyMilestoneSnap) {
+                          // Data status capaian (achievedMap dan achievedDateMap)
+                          final Map<String, bool> achievedMap = {};
+                          final Map<String, DateTime?> achievedDateMap = {};
+
+                          if (babyMilestoneSnap.hasData) {
+                            for (var doc in babyMilestoneSnap.data!.docs) {
+                              final data = doc.data() as Map<String, dynamic>?;
+                              // ID dokumen dalam subkoleksi adalah ID Milestone Master
+                              achievedMap[doc.id] = data?['achieved'] == true;
+
+                              final Timestamp? ts = data?['achieved_at'] as Timestamp?;
+                              achievedDateMap[doc.id] = ts?.toDate();
+                            }
                           }
-                        }
 
-                        final Map<String, double> categoryProgress = {};
-                        for (var cat in categories) {
-                          categoryProgress[cat] =
-                              _calculateCategoryProgress(cat, achievedMap, allMilestones);
-                        }
+                          // Kira Progress Kategori
+                          final Map<String, double> categoryProgress = {};
+                          for (var cat in categories) {
+                            categoryProgress[cat] =
+                                _calculateCategoryProgress(cat, achievedMap, allMilestones);
+                          }
 
-                        return CustomScrollView(
-                          slivers: [
-                            SliverToBoxAdapter(
-                                child: _buildHeaderVibrant(
-                                    textTheme, baby, babyAgeInMonths, categoryProgress)),
-                            SliverToBoxAdapter(child: _buildMonthSelectorSliver(textTheme)),
+                          // ============== Paparan Akhir ==============
+                          return CustomScrollView(
+                            slivers: [
+                              SliverToBoxAdapter(
+                                  child: _buildHeaderVibrant(
+                                      textTheme, baby, babyAgeInMonths, categoryProgress)),
+                              SliverToBoxAdapter(child: _buildMonthSelectorSliver(textTheme)),
 
-                            if (filteredMilestones.isEmpty)
-                              SliverFillRemaining(
-                                child: Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.sentiment_dissatisfied_rounded,
-                                          color: lightGrey, size: 48),
-                                      const SizedBox(height: 12),
-                                      Text(
-                                        'Tiada milestone dicadangkan untuk ${months[selectedIndex]["label"]} bulan.',
-                                        textAlign: TextAlign.center,
-                                        style: textTheme.titleMedium
-                                            ?.copyWith(color: Colors.black54),
-                                      ),
-                                    ],
+                              if (filteredMilestones.isEmpty)
+                                SliverFillRemaining(
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.sentiment_dissatisfied_rounded,
+                                            color: lightGrey, size: 48),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          'Tiada milestone dicadangkan untuk ${months[selectedIndex]["label"]} bulan.',
+                                          textAlign: TextAlign.center,
+                                          style: textTheme.titleMedium?.copyWith(color: Colors.black54),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              )
-                            else
-                              SliverList(
-                                delegate: SliverChildListDelegate([
-                                  for (var cat in categories) ...[
-                                    if ((grouped[cat] ?? []).isNotEmpty)
+                                )
+                              else
+                                SliverList(
+                                  delegate: SliverChildListDelegate([
+                                    for (var cat in categories) ...[
+                                      if ((grouped[cat] ?? []).isNotEmpty)
+                                        // Header Kategori (untuk estetika)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                              top: 16, bottom: 8, left: 16, right: 16),
+                                          child: Text(cat,
+                                              style: textTheme.titleLarge?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                                color: textColor,
+                                                fontSize: 18,
+                                              )),
+                                        ),
                                       ...grouped[cat]!.map(
                                         (milestone) => Padding(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 16, vertical: 6),
                                           child: _MilestoneCardDataViz(
                                             milestone: milestone,
-                                            achieved:
-                                                achievedMap[milestone.id] ?? false,
-                                            achievedAt:
-                                                achievedDateMap[milestone.id],
+                                            achieved: achievedMap[milestone.id] ?? false,
+                                            achievedAt: achievedDateMap[milestone.id],
                                             categoryColor: _getCategoryColor(cat),
-                                            babyMonth:
-                                                ((selectedFrom + selectedTo) / 2),
+                                            babyMonth: ((selectedFrom + selectedTo) / 2),
+                                            // Memanggil fungsi toggle dengan babyId yang diperolehi
+                                            onToggle: () async {
+                                              final isCurrentlyAchieved =
+                                                  achievedMap[milestone.id] ?? false;
+                                              await _toggleAchieved(
+                                                babyId: babyId,
+                                                milestoneId: milestone.id,
+                                                currentlyAchieved: isCurrentlyAchieved,
+                                              );
+                                              _showSnackBar(
+                                                  context,
+                                                  isCurrentlyAchieved
+                                                      ? 'Milestone dibatalkan.'
+                                                      : 'Milestone dicapai!',
+                                                  isError: isCurrentlyAchieved);
+                                            },
                                           ),
                                         ),
-                                      )
-                                  ],
-                                  const SizedBox(height: 24),
-                                ]),
-                              ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                );
-              },
+                                      ),
+                                    ],
+                                    const SizedBox(height: 24),
+                                  ]),
+                                ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderVibrant(TextTheme textTheme, Baby baby, int babyAgeInMonths,
+      Map<String, double> categoryProgress) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, 20), // tambah top padding
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            const BorderRadius.only(bottomLeft: Radius.circular(35), bottomRight: Radius.circular(35)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 25,
+            offset: const Offset(0, 8),
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center, // center semua anak-anak
+        children: [
+          const SizedBox(height: 10), // jarak tambahan
+          Text(
+            'Perkembangan Anak',
+            textAlign: TextAlign.center,
+            style: textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: primaryColor,
+              fontSize: 24,
             ),
-    ),
-  );
-}
-
-
-  Widget _buildHeaderVibrant(
-  TextTheme textTheme, Baby baby, int babyAgeInMonths, Map<String, double> categoryProgress) {
-  return Container(
-    width: double.infinity,
-    padding: const EdgeInsets.fromLTRB(20, 50, 20, 20), // tambah top padding
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(35), bottomRight: Radius.circular(35)),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black12,
-          blurRadius: 25,
-          offset: const Offset(0, 8),
-        )
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.center, // center semua anak-anak
-      children: [
-        const SizedBox(height: 10), // jarak tambahan
-        Text(
-          'Perkembangan Anak',
-          textAlign: TextAlign.center,
-          style: textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w900,
-            color: primaryColor,
-            fontSize: 24,
           ),
-        ),
-        const SizedBox(height: 20), // jarak ke progress box
-        // Ringkasan Progress per Kategori
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: primaryColor.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: primaryColor.withOpacity(0.2)),
+          const SizedBox(height: 20), // jarak ke progress box
+          // Ringkasan Progress per Kategori
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: primaryColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: primaryColor.withOpacity(0.2)),
+            ),
+            child: Column(
+              children: categoryProgress.entries.map((entry) {
+                final cat = entry.key;
+                final progress = entry.value;
+                final color = _getCategoryColor(cat);
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(cat,
+                          style: textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          )),
+                      Text('${(progress * 100).toStringAsFixed(0)}%',
+                          style: textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          )),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
           ),
-          child: Column(
-            children: categoryProgress.entries.map((entry) {
-              final cat = entry.key;
-              final progress = entry.value;
-              final color = _getCategoryColor(cat);
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(cat,
-                        style: textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: textColor,
-                        )),
-                    Text('${(progress * 100).toStringAsFixed(0)}%',
-                        style: textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        )),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-
-
-  Widget _buildCategoryHeader(String category, Map<String, bool> achievedMap, List<Milestone> allMilestones, TextTheme textTheme) {
-    final progress = _calculateCategoryProgress(category, achievedMap, allMilestones);
-    final color = _getCategoryColor(category);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(category,
-                style: textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: textColor,
-                  fontSize: 18,
-                )),
-            Text('${(progress * 100).toStringAsFixed(0)}%',
-                style: textTheme.titleMedium?.copyWith(color: color, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(5),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 8,
-            color: color,
-            backgroundColor: lightGrey,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -559,7 +599,8 @@ Widget _buildMonthSelectorSliver(TextTheme textTheme) {
             Icon(Icons.child_care, color: accentColor, size: 48),
             const SizedBox(height: 12),
             Text('Tiada rekod bayi dijumpai.',
-                style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: textColor)),
+                style:
+                    textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: textColor)),
             const SizedBox(height: 8),
             Text('Sila tambah maklumat bayi untuk mula menjejak milestone.',
                 textAlign: TextAlign.center, style: textTheme.bodyMedium?.copyWith(color: Colors.black54)),
@@ -568,25 +609,27 @@ Widget _buildMonthSelectorSliver(TextTheme textTheme) {
       );
 }
 
+// ================== MILESTONE CARD WIDGET ==================
+
 class _MilestoneCardDataViz extends StatelessWidget {
   final Milestone milestone;
   final bool achieved;
   final Color categoryColor;
   final double babyMonth;
   final DateTime? achievedAt;
+  final VoidCallback onToggle;
 
   const _MilestoneCardDataViz({
     required this.milestone,
     required this.achieved,
     required this.categoryColor,
     required this.babyMonth,
+    required this.onToggle,
     this.achievedAt,
   });
 
   @override
   Widget build(BuildContext context) {
-    final Color statusColor = achieved ? accentColor : primaryColor;
-
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
@@ -601,6 +644,7 @@ class _MilestoneCardDataViz extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Garisan Warna Penanda Kategori
           Container(
             width: 5,
             height: 80,
@@ -614,74 +658,82 @@ class _MilestoneCardDataViz extends StatelessWidget {
             ),
           ),
           Expanded(
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              milestone.name,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 17,
-                  color: textColor),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        milestone.name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 17, color: textColor),
+                      ),
+                    ),
+                    if (achieved) // <-- Paparkan tag "Selesai"
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Selesai',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green.shade800,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  milestone.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.access_time, size: 12, color: Colors.grey.shade600),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Umur: ${milestone.ageFrom} - ${milestone.ageTo} bln',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+                if (achievedAt != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Dicapai pada: ${DateFormat('dd MMM yyyy').format(achievedAt!)}',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ),
+              ],
             ),
           ),
-          if (achieved) // <-- Kalau milestone dah tick
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.green.shade100,
-                borderRadius: BorderRadius.circular(12),
+          // ============== BUTANG TOGGLE (TICK) ==============
+          Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: IconButton(
+              icon: Icon(
+                achieved ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                color: achieved ? accentColor : lightGrey,
+                size: 30,
               ),
-              child: Text(
-                'Selesai',
-                style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.green.shade800,
-                    fontWeight: FontWeight.bold),
-              ),
+              onPressed: onToggle, // <-- MENCETUSKAN LOGIK TOGGLE
+              tooltip: achieved ? 'Batalkan Capaian' : 'Tandakan Selesai',
             ),
-        ],
-      ),
-      const SizedBox(height: 4),
-      Text(
-        milestone.description,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: Colors.black54, fontSize: 13),
-      ),
-      const SizedBox(height: 8),
-      Row(
-        children: [
-          Icon(Icons.access_time, size: 12, color: Colors.grey.shade600),
-          const SizedBox(width: 4),
-          Text(
-            'Umur: ${milestone.ageFrom} - ${milestone.ageTo} bln',
-            style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500),
           ),
-        ],
-      ),
-      if (achievedAt != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            'Dicapai pada: ${DateFormat('dd MMM yyyy').format(achievedAt!)}',
-            style: TextStyle(
-                fontSize: 11,
-                color: Colors.green.shade700,
-                fontWeight: FontWeight.w500),
-          ),
-        ),
-    ],
-  ),
-),
-
+          // ==================================================
         ],
       ),
     );

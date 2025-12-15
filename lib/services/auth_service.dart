@@ -7,17 +7,17 @@ class AuthService {
 
   // Register caregiver
   Future<void> registerCaregiver({
-    required String name,
-    required String email,
-    required String password,
-    required String phone,
-  }) async {
-    final userCredential = await _auth.createUserWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
+ required String name,
+ required String email,
+ required String password,
+ required String phone,
+ }) async {
+ final userCredential = await _auth.createUserWithEmailAndPassword(
+ email: email,
+ password: password,
+ );
 
-    await _db.collection('users').doc(userCredential.user!.uid).set({
+    await _db.collection('caregivers').doc(userCredential.user!.uid).set({
       'name': name,
       'email': email,
       'phone': phone,
