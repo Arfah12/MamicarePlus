@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,27 +8,39 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mamicare_plus2/firebase_options.dart';
 import 'package:mamicare_plus2/services/notification_service.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
-
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 // Screens
 import 'screens/login_page.dart';
 import 'screens/register_page.dart';
 import 'screens/admin/admin_home.dart';
 import 'screens/caregiver/caregiver_home.dart';
 import 'screens/caregiver/create_profile.dart';
+import 'package:flutter/foundation.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Init timezone
   tz.initializeTimeZones();
-
+  // Load dotenv safely: try default, then fallback to assets/.env (web)
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    try {
+      await dotenv.load(fileName: "assets/.env");
+    } catch (e2) {
+      // non-fatal: continue without env vars, but log
+      // ignore: avoid_print
+      print('dotenv load failed: $e / $e2');
+    }
+  }
   // Init notifications
   await NotificationService.init();
 
-  // Android 13+ notification permission
-  if (Platform.isAndroid) {
-    final androidPlugin =
-        NotificationService.instance.resolvePlatformSpecificImplementation<
+  // Android 13+ notification permission (skip on web)
+  if (!kIsWeb && Platform.isAndroid) {
+    final androidPlugin = NotificationService.instance
+        .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.requestNotificationsPermission();
   }
@@ -70,19 +83,18 @@ class MamiCarePlusApp extends StatelessWidget {
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
 
-  Future<bool> hasBabyProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
+ Future<bool> hasCaregiverProfile() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return false;
 
-    final babiesSnap = await FirebaseFirestore.instance
-        .collection('caregivers')
-        .doc(user.uid)
-        .collection('babies')
-        .limit(1)
-        .get();
+  final doc = await FirebaseFirestore.instance
+      .collection('caregivers')
+      .doc(user.uid)
+      .get();
 
-    return babiesSnap.docs.isNotEmpty;
-  }
+  return doc.exists;
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -108,21 +120,22 @@ class AuthWrapper extends StatelessWidget {
 
         // Caregiver flow
         return FutureBuilder<bool>(
-          future: hasBabyProfile(),
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
+  future: hasCaregiverProfile(),
+  builder: (context, snap) {
+    if (snap.connectionState == ConnectionState.waiting) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
-            if (snap.data == true) {
-              return const CaregiverHomePage();
-            }
+    if (snap.data == true) {
+      return const CaregiverHomePage();
+    }
 
-            return const CreateProfilePage();
-          },
-        );
+    return const CreateProfilePage();
+  },
+);
+
       },
     );
   }

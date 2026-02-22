@@ -2,10 +2,11 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 class NotificationService {
-  static final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  static final FlutterLocalNotificationsPlugin
+      _flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
-  static FlutterLocalNotificationsPlugin get instance => _flutterLocalNotificationsPlugin;
+  static FlutterLocalNotificationsPlugin get instance =>
+      _flutterLocalNotificationsPlugin;
 
   static Future<void> init() async {
     const AndroidInitializationSettings androidSettings =
@@ -23,13 +24,20 @@ class NotificationService {
     required String title,
     required String body,
   }) async {
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails('default_channel', 'Default',
-            channelDescription: 'Default channel',
-            importance: Importance.max,
-            priority: Priority.high);
+    final AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'mamicare_channel',
+      'MamiCare Notifications',
+      channelDescription: 'Notifikasi MamiCare',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      styleInformation: BigTextStyleInformation(body),
+    );
 
-    const NotificationDetails details = NotificationDetails(android: androidDetails);
+    final NotificationDetails details =
+        NotificationDetails(android: androidDetails);
 
     await _flutterLocalNotificationsPlugin.show(id, title, body, details);
   }
@@ -40,13 +48,20 @@ class NotificationService {
     required String body,
     required tz.TZDateTime scheduledDate,
   }) async {
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails('default_channel', 'Default',
-            channelDescription: 'Default channel',
-            importance: Importance.max,
-            priority: Priority.high);
+    final AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'mamicare_channel',
+      'MamiCare Notifications',
+      channelDescription: 'Notifikasi MamiCare',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      styleInformation: BigTextStyleInformation(body),
+    );
 
-    const NotificationDetails details = NotificationDetails(android: androidDetails);
+    final NotificationDetails details =
+        NotificationDetails(android: androidDetails);
 
     await _flutterLocalNotificationsPlugin.zonedSchedule(
       id,
@@ -57,7 +72,6 @@ class NotificationService {
       androidAllowWhileIdle: true,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: null,
     );
   }
 

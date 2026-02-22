@@ -27,6 +27,8 @@ dependencies:
   font_awesome_flutter: ^10.7.0
   confetti: ^0.7.0
   cached_network_image: ^3.2.3
+  flutter_dotenv: ^5.0.2
+  http: ^1.1.0
 
   
 
@@ -34,12 +36,21 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: assets/icon/app_icon.png
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
+    - assets/.env
+    - assets/icon/
+
 
 
 
